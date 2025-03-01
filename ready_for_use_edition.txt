@@ -1,0 +1,164 @@
+// ==UserScript==
+// @name         百丽宫物理实验选课辅助脚本(ready_for_use)
+// @version      0.1.0
+// @description  get_ready_for_use
+// @author       Capsize_rm
+// @match        http://10.133.22.200:7100/*
+// @icon         http://10.133.22.200:7100/favicon.ico
+// @grant        none
+// ==/UserScript==
+ 
+(function () {
+    'use strict';
+ 
+    // 保存原始的 XMLHttpRequest 对象
+    const originalXHR = window.XMLHttpRequest;
+ 
+    // 创建悬浮消息容器
+    const messageContainer = document.createElement('div');
+    messageContainer.style.position = 'fixed';
+    messageContainer.style.top = '20px';
+    messageContainer.style.right = '20px';
+    messageContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    messageContainer.style.color = '#ffffff';
+    messageContainer.style.padding = '10px';
+    messageContainer.style.borderRadius = '5px';
+    messageContainer.style.zIndex = '9999';
+    messageContainer.style.fontFamily = 'Arial, sans-serif';
+    messageContainer.style.fontSize = '14px';
+    messageContainer.style.maxHeight = '300px';
+    messageContainer.style.overflowY = 'auto';
+    messageContainer.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.5)';
+ 
+    // 将容器添加到页面
+    document.body.appendChild(messageContainer);
+ 
+    // 消息队列
+    const maxMessages = 20;
+    let messageCount = 0;
+    // 启动提示
+    const newMessage = document.createElement('div');
+    newMessage.textContent = `脚本加载完毕,当前版本为ready_for_use版`;
+    newMessage.style.marginBottom = '5px';
+    messageContainer.insertBefore(newMessage, messageContainer.firstChild);
+    if (messageContainer.children.length > maxMessages) {
+        messageContainer.removeChild(messageContainer.lastChild);
+    }
+ 
+    // 重写 XMLHttpRequest
+    window.XMLHttpRequest = function () {
+        const xhr = new originalXHR();
+ 
+        // 用于存储定时器的 ID
+        let retryIntervalId = null;
+ 
+        // 重写 open 方法
+        const originalOpen = xhr.open;
+        xhr.open = function (method, url) {
+            console.log(`拦截到请求: ${method} ${url}`);
+ 
+            // 如果是 POST 请求并且 URL 匹配目标路径
+            if (method.toUpperCase() === 'POST' && url.includes('/XPK/StuCourseElective/UseCoursesLab')) {
+                // 重写 send 方法
+                const originalSend = xhr.send;
+                xhr.send = function (body) {
+                    console.log('原始请求体:', body);
+ 
+                    // 解析请求体（假设是 URL 编码格式）
+                    const params = new URLSearchParams(body);
+ 
+                    // 检查 ObjectIDs 是否包含 TeacherID
+                    const objectIDs = params.get('ObjectIDs');
+                    if (objectIDs && objectIDs.includes('TeacherID')) {
+                        console.log('ObjectIDs 包含 TeacherID');
+ 
+                        // 修改请求体（如果需要）
+                        const modifiedBody = modifyRequestBody(body);
+                        console.log('修改后的请求体:', modifiedBody);
+ 
+                        // 调用原始的 send 方法
+                        originalSend.call(xhr, modifiedBody);
+ 
+                        // 解析 ObjectIDs 获取 LabName
+                        const objectIDsJson = JSON.parse(decodeURIComponent(objectIDs));
+                        const labName = objectIDsJson[0].LabName;
+ 
+                        // 计数器
+                        let i = 0;
+ 
+                        // 重写 onreadystatechange 方法以检查响应
+                        const originalOnReadyStateChange = xhr.onreadystatechange;
+                        xhr.onreadystatechange = function () {
+                            if (xhr.readyState === 4) { // 请求完成
+                                console.log('请求完成，响应:', xhr.responseText);
+ 
+                                // 检查响应中是否包含“成功”
+                                if (xhr.responseText.includes('成功')) {
+                                    console.log('响应包含“成功”，停止重发请求');
+                                    clearInterval(retryIntervalId); // 清除定时器
+ 
+                                    // 在悬浮消息中打印“已经获取课程”
+                                    const newMessage = document.createElement('div');
+                                    newMessage.textContent = `已经获取课程: ${labName}`;
+                                    newMessage.style.marginBottom = '5px'; // 设置消息间距
+ 
+                                    // 将新消息添加到容器顶部
+                                    messageContainer.insertBefore(newMessage, messageContainer.firstChild);
+ 
+                                    // 如果消息超过最大数量，移除最旧的消息
+                                    if (messageContainer.children.length > maxMessages) {
+                                        messageContainer.removeChild(messageContainer.lastChild);
+                                    }
+                                }
+                            }
+ 
+                            // 调用原始的 onreadystatechange 方法
+                            if (originalOnReadyStateChange) {
+                                originalOnReadyStateChange.apply(xhr, arguments);
+                            }
+                        };
+ 
+                        // 每隔一秒重发一次数据包请求
+                        retryIntervalId = setInterval(() => {
+                            i++; // 每次重发时增加计数器
+                            console.log('重发请求体:', modifiedBody);
+                            originalSend.call(xhr, modifiedBody);
+ 
+                            // 在悬浮消息中打印信息
+                            const newMessage = document.createElement('div');
+                            newMessage.textContent = `正在获取课程: ${labName}, 进度: 百分之${i}`;
+                            newMessage.style.marginBottom = '5px'; // 设置消息间距
+ 
+                            // 将新消息添加到容器顶部
+                            messageContainer.insertBefore(newMessage, messageContainer.firstChild);
+ 
+                            // 如果消息超过最大数量，移除最旧的消息
+                            if (messageContainer.children.length > maxMessages) {
+                                messageContainer.removeChild(messageContainer.lastChild);
+                            }
+                        }, 800);
+                    } else {
+                        console.log('ObjectIDs 不包含 TeacherID，不处理此请求');
+                        // 如果不满足条件，直接发送原始请求
+                        originalSend.call(xhr, body);
+                    }
+                };
+            }
+ 
+            // 调用原始的 open 方法
+            originalOpen.apply(xhr, arguments);
+        };
+ 
+        return xhr;
+    };
+ 
+    // 修改请求体的函数
+    function modifyRequestBody(body) {
+        // 解析请求体（假设是 URL 编码格式）
+        const params = new URLSearchParams(body);
+        // 返回修改后的请求体
+        return params.toString();
+    }
+ 
+    console.log('油猴脚本已加载，开始拦截请求...');
+})();
